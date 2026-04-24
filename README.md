@@ -2,6 +2,8 @@
 
 > End-to-end ML system: data pipeline → feature engineering → XGBoost training → SHAP explainability → quantile regression confidence intervals → 6-tab Streamlit app → SageMaker serverless deployment. Built with real F1 race data from OpenF1 API.
 
+> inspired from my first project of F1 - "f1-race-predictor"
+
 ### 🔗 Live Demo & Deployment
 
 | Platform | Link | Status |
@@ -13,6 +15,8 @@
 ---
 
 ## Overview
+
+**ML system that predicts where an F1 driver will finish a race. It uses XGBoost with 23 engineered features from the OpenF1 API — things like qualifying position, weather, pit strategy, and driver form. It includes SHAP explainability so I can explain why the model predicted P2, confidence intervals so I can say 'P2, likely P1–P4', and it's deployed live on Streamlit Cloud and SageMaker.**
 
 | Component | Description |
 |-----------|-------------|
