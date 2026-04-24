@@ -1,6 +1,16 @@
-# 🏎️ F1 Race Position Predictor
+# 🏎️ gridlock-ml — F1 Race Position Predictor
 
-Predict Formula 1 driver finishing positions using XGBoost with 23 engineered features derived from qualifying, race form, weather, pit strategy, circuit type, and team performance. Data sourced from the OpenF1 API (2023+).
+> End-to-end ML system: data pipeline → feature engineering → XGBoost training → SHAP explainability → quantile regression confidence intervals → 6-tab Streamlit app → SageMaker serverless deployment. Built with real F1 race data from OpenF1 API.
+
+### 🔗 Live Demo & Deployment
+
+| Platform | Link | Status |
+|----------|------|--------|
+| **🌐 Live App** | [gridlock-ml-f1-enthusiasts.streamlit.app](https://gridlock-ml-f1-enthusiasts.streamlit.app/) | ✅ Live |
+| **☁️ SageMaker API** | `f1-predictor-serverless` (us-east-1) | ✅ Live |
+| **📦 GitHub** | [Duanshi-B-Shah/gridlock-ml](https://github.com/Duanshi-B-Shah/gridlock-ml) | ✅ Public |
+
+---
 
 ## Overview
 
@@ -157,9 +167,23 @@ make all              # fetch → train → train-quantile → evaluate → app
 
 ## Deployment
 
-- **Docker**: `docker build -t f1-predictor . && docker run -p 8501:8501 f1-predictor`
-- **Streamlit Cloud**: Push to GitHub, connect via share.streamlit.io
-- **EC2**: Docker container or systemd service
+### Streamlit Cloud (Live)
+Currently deployed at [gridlock-ml-f1-enthusiasts.streamlit.app](https://gridlock-ml-f1-enthusiasts.streamlit.app/). Auto-deploys on push to `main`.
+
+### SageMaker Serverless Endpoint (Live)
+REST API for programmatic access. Scales to zero when idle (~$1-5/mo).
+```bash
+python infra/sagemaker/deploy.py --bucket YOUR-BUCKET
+python infra/sagemaker/test_endpoint.py  # Test it
+```
+
+### Docker
+```bash
+docker build -t gridlock-ml . && docker run -p 8501:8501 gridlock-ml
+```
+
+### App Runner
+Full deployment script at `infra/apprunner/deploy.sh` — builds Docker, pushes to ECR, creates App Runner service.
 
 ## License
 
