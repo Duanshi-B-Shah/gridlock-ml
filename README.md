@@ -115,6 +115,91 @@ f1-race-predictor/
 | **Circuit Type** | `is_street_circuit` | Derived (Monaco, Jeddah, Singapore, etc.) |
 | **Teammate** | `teammate_delta_rolling` | Rolling avg vs teammate finish |
 
+## Walk-Through by Module
+
+### 1. Data Pipeline (`src/f1_predictor/data/fetcher.py`)
+
+Pulls race data from **5 OpenF1 API endpoints** — positions, drivers, weather, stints, and qualifying.
+
+- **Grid position** is derived from the first position entry per driver (the API returns time-series position data, not a grid column directly)
+- **Qualifying positions** come from a separate qualifying session — found via `meeting_key`, then the last position per driver is taken as the final classification
+- **Weather** is aggregated from minute-by-minute readings to session-level means + a wet/dry binary flag
+- **Rate limiting**: 2s delays between API calls, 3s between races, 5 retry attempts with 10–50s linear backoff on HTTP 429
+- **Graceful degradation**: If any endpoint returns no data for a session, features fall back to sensible defaults instead of crashing
+
+### 2. Feature Engineering (`src/f1_predictor/features/engineering.py`)
+
+Transforms raw race results into **23 model-ready features** across 8 categories:
+
+| Category | What It Captures | Why It Matters |
+|----------|-----------------|----------------|
+| **Grid + Qualifying** | Starting position, qualifying pace, grid penalties | Where you start strongly predicts where you finish |
+| **Driver Form** | Rolling avg finish (3 & 5 races), points trend, positions gained/lost | A driver on a hot streak performs differently |
+| **Circuit History** | Driver's avg finish at this track, number of prior races | Some drivers excel at specific circuits (Hamilton at Silverstone) |
+| **Team Performance** | Team season avg finish, points per race | In F1, the car matters more than the driver — team performance is critical |
+| **Reliability** | DNF rate (season + circuit) | Unreliable cars are more likely to retire mid-race |
+| **Weather** | Air/track temp, humidity, wind, wet/dry flag | Rain causes massive position swings — high-signal feature |
+| **Strategy** | Number of pit stops | More stops = more risk of position loss in the pit lane |
+| **Circuit Type + Teammate** | Street circuit flag, rolling teammate delta | Street circuits are less predictable; teammate comparison shows car vs driver performance |
+
+**Critical design**: Every rolling feature uses `.shift(1)` — the model **never** sees the current race when computing features. This prevents data leakage.
+
+### 3. Model Training (`src/f1_predictor/training/train.py`)
+
+- **Algorithm**: XGBoost Regressor — best-in-class for small tabular datasets
+- **Why not deep learning?** Only ~400 training rows (20 drivers × ~20 races). XGBoost empirically wins at this scale.
+- **Cross-validation**: `TimeSeriesSplit(n_splits=5)` — training set always precedes validation set chronologically
+- **Hyperparameter tuning**: `GridSearchCV` over `n_estimators`, `max_depth`, `learning_rate`, `subsample`, `colsample_bytree`
+- **Baseline**: "Grid position = finishing position" — the model achieves **~35% lower MAE** than this baseline
+- **Output**: Predictions clipped to [1, 20] and rounded to integers (P5, not P4.9)
+
+### 4. SHAP Explainability (`src/f1_predictor/explainability/shap_explainer.py`)
+
+Uses `shap.TreeExplainer` for **exact** (not approximate) feature contribution values:
+
+- **Beeswarm** (global): Which features matter most across all predictions
+- **Waterfall** (per-prediction): Decompose a single prediction — "grid_position=1 pushed prediction down by 3.2 positions, but is_wet_race=1 pushed it up by 2.1"
+- **Top contributors**: The 5 features that drove a specific prediction the most, with direction and magnitude
+
+### 5. Confidence Intervals (`src/f1_predictor/explainability/confidence.py`)
+
+Instead of just "P5", the system outputs **"P5 (range: P3–P7)"** — an 80% confidence interval.
+
+Three separate XGBoost models trained with `objective="reg:quantileerror"`:
+- **10th percentile** → optimistic bound (P3)
+- **50th percentile** → median prediction (P5)
+- **90th percentile** → conservative bound (P7)
+
+### 6. MLflow Tracking (`src/f1_predictor/tracking/mlflow_tracker.py`)
+
+Every training run automatically logs:
+- **Parameters**: All hyperparams, feature config, data stats, tuning method
+- **Metrics**: MAE, RMSE, R², baseline comparison, CV fold scores
+- **Artifacts**: Trained model, SHAP plots, evaluation plots
+- **Model Registry**: Optional model registration with `--register` flag for staging/production promotion
+
+### 7. Streamlit App (`app/streamlit_app.py`)
+
+700+ lines, 6 interactive tabs:
+
+| Tab | Demo Move |
+|-----|-----------|
+| **🏎️ What is F1?** | Onboards someone who's never watched F1 — explains the sport, key terms, and how the model works |
+| **🎛️ Predict** | Adjust 23 sliders → see the predicted position change in real-time |
+| **🔍 Explainability** | Pick a driver + circuit → SHAP waterfall shows *why* the model predicted that position |
+| **🏁 Race Sim** | Select any race → predict all 20 drivers. Auto-fill mode populates features from real historical data |
+| **👤 Drivers** | Multi-select drivers, filter by circuit, position trend charts, predicted vs actual scatter |
+| **📋 Batch** | Full dataset MAE vs baseline comparison |
+
+### 8. Deployment (`infra/`)
+
+| Target | How | Cost |
+|--------|-----|------|
+| **Streamlit Cloud** | Auto-deploys from GitHub on push to `main` | Free |
+| **SageMaker Serverless** | `python infra/sagemaker/deploy.py --bucket BUCKET` — REST API, scales to zero | ~$1-5/mo |
+| **Docker** | `docker build -t gridlock-ml . && docker run -p 8501:8501 gridlock-ml` | — |
+| **App Runner** | `./infra/apprunner/deploy.sh` — builds Docker, pushes ECR, creates service | ~$10-25/mo |
+
 ## Streamlit App — 6 Tabs
 
 | Tab | What It Does |
